@@ -1,0 +1,193 @@
+#!/usr/bin/env bash
+export USERID="$(id -u)"
+
+NPM="docker-compose exec app-dev npm"
+NEST="docker-compose exec app-dev npm run nest"
+NPX="docker-compose exec app-dev npm run npx"
+ENV_FILE=".env"
+ENV_FILE_EXAMPLE=".env.example"
+ICON="🤖"
+
+devops_dir=~/dev/work/devops/devops-docker-compose
+project_dir=$(pwd)
+
+show_commands () {
+    echo
+    echo "$ICON Comandos disponíveis:"
+    echo
+    echo "sh dev build             - (Re)Builda as imagens dos containers"
+    echo "sh dev start-dev         - Inicia os containers em modo Dev"
+    echo "sh dev start-prod        - Inicia os containers em modo Prod"
+    echo "sh dev status            - Exibe o status dos containers"
+    echo "sh dev stop              - Desliga os containers"
+    echo "sh dev logs NOME         - Exibe e acompanha os logs do container"
+    echo "sh dev npm COMANDO       - Executa os comandos do NPM"
+    echo "sh dev nest COMANDO      - Executa comandos do Nest CLI"
+    echo "sh dev npx COMANDO       - Executa comandos do NPX"
+    echo
+}
+
+devops_start () {
+    cd $devops_dir
+    if ! docker ps | grep -F -q "devops_traefik"; then
+        sh dev start traefik
+    fi
+    if ! docker ps | grep -F -q "devops_mailhog"; then
+            sh dev start mailhog
+    fi
+    if ! docker ps | grep -F -q "devops_redis"; then
+        sh dev start redis
+    fi
+    if ! docker ps | grep -F -q "postgresql16"; then
+        sh dev start postgresql16
+        sleep 15
+    fi
+    cd $project_dir
+}
+
+compose_build () {
+    echo
+    echo "$ICON Buildando as imagens..."
+    echo
+    check_env_exists
+    docker-compose build
+}
+
+compose_up_dev () {
+    echo
+    echo "$ICON Iniciando os containers em modo Dev..."
+    echo
+    check_env_exists
+    docker-compose up -d app-dev
+    execute_npm_install
+}
+
+compose_up_prod () {
+    echo
+    echo "$ICON Iniciando os containers em modo Prod..."
+    echo
+    check_env_exists
+    docker-compose up -d --build app-prod
+}
+
+execute_npm_install () {
+    echo
+    echo "$ICON Ajustando permissões no contêiner..."
+    echo
+    docker-compose exec app-dev chmod -R 775 /var/www/html/node_modules || true
+    echo
+    echo "$ICON Instalando dependências Js (node_modules)..."
+    echo
+    $NPM install
+}
+
+compose_status () {
+    echo
+    echo "$ICON Exibindo o status dos containers..."
+    echo
+    docker-compose ps
+}
+
+compose_down () {
+    echo
+    echo "$ICON Parando os containers..."
+    echo
+    docker-compose down
+}
+
+compose_logs () {
+    shift 1
+    if [ $# -gt 0 ]; then
+        echo
+        echo "$ICON Exibindo logs do container $@"
+        echo
+        docker-compose logs -f $@
+    else
+        echo
+        echo "$ICON Exibindo logs de todos os containers"
+        echo
+        docker-compose logs -f
+    fi
+}
+
+check_app_is_up () {
+    if ! docker-compose ps | grep -F -q "app-dev"; then
+        echo
+        echo "$ICON Você precisa iniciar os containers da aplicação!"
+        echo "$ICON Comandos: sh dev start-dev"
+        echo
+        exit 1
+    fi
+}
+
+execute_npm () {
+    check_app_is_up
+    echo
+    echo "$ICON Executando NPM..."
+    echo
+    shift 1
+    $NPM $@
+}
+
+execute_nest () {
+    check_app_is_up
+    echo
+    echo "$ICON Executando Nest CLI..."
+    echo
+    shift 1
+    $NEST $@
+}
+
+execute_npx () {
+    check_app_is_up
+    echo
+    echo "$ICON Executando NPX..."
+    echo
+    shift 1
+    $NPX $@
+}
+
+start_dev () {
+    compose_down
+    devops_start
+    compose_up_dev
+    echo
+    echo "$ICON Iniciando aplicação em modo Dev"
+    echo
+    $NPM run start:dev
+}
+
+start_prod () {
+    compose_down
+    devops_start
+    compose_up_prod
+    echo
+    echo "$ICON Iniciando aplicação em modo PROD"
+    echo
+    docker-compose logs -f app-prod
+}
+
+check_env_exists () {
+    if [ ! -f "$ENV_FILE" ]; then
+        echo "$ICON Criando arquivo de configuração $ENV_FILE..."
+        cp $ENV_FILE_EXAMPLE $ENV_FILE
+        echo
+    fi
+}
+
+if [ $# -gt 0 ]; then
+    case "$1" in
+    "build") compose_build ;;
+    "start-dev") start_dev ;;
+    "start-prod") start_prod ;;
+    "status") compose_status ;;
+    "stop") compose_down ;;
+    "logs") compose_logs $@ ;;
+    "npm") execute_npm $@ ;;
+    "nest") execute_nest $@ ;;
+    "npx") execute_npx $@ ;;
+    *) show_commands ;;
+    esac
+else
+    show_commands
+fi

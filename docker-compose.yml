@@ -1,0 +1,20 @@
+networks:
+  traefik_network:
+    external: true
+
+services:
+  app-dev:
+    container_name: nestjs-solid-api
+    build:
+      context: .
+      dockerfile: docker/node/Dockerfile
+    image: nestjs-solid-api
+    volumes:
+      - .:/var/www/html
+    networks:
+      - traefik_network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.nestjs-solid-api.rule=Host(`nestjs-solid-api.docker.localhost`)"
+      - "traefik.http.services.nestjs-solid-api.loadbalancer.server.port=3000"
+      - "traefik.http.routers.nestjs-solid-api.tls=true"
